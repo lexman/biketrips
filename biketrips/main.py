@@ -3,6 +3,7 @@ from glob import glob
 from pathlib import Path
 import json
 import math
+from time import sleep
 
 
 def read_enabled_free_bikes(filename):
@@ -13,7 +14,7 @@ def read_enabled_free_bikes(filename):
             free_bikes = {
                 bike["bike_id"]: bike for bike in bikes if bike["is_disabled"] == 0
             }
-            return free_bikes
+            return free_bikes, obj['last_updated']
         except Exception as e:
             print(f"File {filename} the is not well formated. Ignoring...")
             print(e)
@@ -21,8 +22,28 @@ def read_enabled_free_bikes(filename):
 
 def get_next_free_bikes(history_path):
     free_bikes_hist = history_path.glob("*/free_bike_status.json")
-    n = sorted(free_bikes_hist)[0]
-    return read_enabled_free_bikes(n)
+    next_file = sorted(free_bikes_hist)[0]
+    return read_enabled_free_bikes(next_file)
+
+
+
+def iter_free_bikes(history_path):
+    """ Convention : files are added in time order
+    ie : a previous file can't be added in a middle of a sequence, only in the end
+     """
+
+    free_bikes_hist = history_path.glob("*/free_bike_status.json")
+    for next_file in sorted(free_bikes_hist):
+        yield read_enabled_free_bikes(next_file)
+
+    
+def iter_free_bikes_forever(history_path):
+    """ Convention : files are added in time order
+    ie : a previous file can't be added in a middle of a sequence, only in the end
+     """
+    while True:
+        yield from iter_free_bikes(history_path)
+        sleep(1)
 
 
 def optional_field(dico, fieldname):
@@ -63,7 +84,6 @@ def haversine(lat1, lon1, lat2, lon2):
     a = dlat ** 2 + lat1 * lat2 * dlon ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     d = radius_m * c
-
     return d
 
 
@@ -79,45 +99,83 @@ def find_nearest_station(bike_lon, _bike_lat, stations):
             if cur_dist <= dist:
                 nearest = st
                 dist = cur_dist
-    return nearest
+    return nearest, dist
 
 
-def batch_find_start(start_trip_bikes_ids, free_bikes, stations):
+def new_trips(start_time, start_trip_bikes_ids, free_bikes, stations):
+    result = {}
     for bike_id in start_trip_bikes_ids:
-        nearest = find_nearest_station_id(
+        nearest, dist = find_nearest_station_id(
             free_bikes[bike_id].lat, free_bikes[bike_id].lon, stations
         )
-        yield (
-            bike_id,
-            nearest,
-        )
+        if dist > 200:
+            nearest = None
+        result[bike_id] = {
+            'bike_id' : bike_id,
+            'start_station' : nearest,
+            'start_time' : start_time,
+        }
+    return result
+    
+
+def bike_ids(bikes):
+    return {bike["bike_id"] for bike in bikes}
 
 
-def apply_change(ongoing_trips, free_bikes):
-    free_bikes_ids = ongoing_trips.bike_ids
-    next_free_bikes_ids = {bike["bike_id"] for bike in free_bikes}
-    start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
-    end_trip_bikes_ids = free_bikes_ids - next_free_bikes_ids
-    new_trips = find_start(start_trip_bikes_ids, free_bikes, stations)
+def bikes_from_ids(bike_ids, bikes):
+    return {bike_id : bikes["bike_id"] for bike_id in bike_ids}
+    
 
+def complete_trips(updated, bike_ids, trips, bikes, stations):
+    """ BEWARE : trips are mutated
+    Remove the trips according to the bike_ids from the trips
+    Returns the removed trips with an end_time and end_station
+    """
+    result = []
+    for bike_id in bike_ids:
+        trip = trips.pop(bike_id)
+        trip['end_time'] = updated
+        bike = bikes[bike_id]
+        trip['end_station'] = find_nearest_station(bike['lon'], bike['lat'], stations)
+        result.append(trip)
+    return result
 
-def main_loop(stations):
-    free_bikes_ids = ongoing_trips.bike_ids
-    while True:
-        next_free_bikes = get_next_free_bikes()
-        next_free_bikes_ids = {bike["bike_id"] for bike in next_free_bikes}
-        start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
+    
+def trips_iterator(free_bikes_iterator, stations):
+    free_bikes, updated = next(free_bikes_iterator)
+    ongoing_trips_bike_ids = bike_ids(free_bikes)
+    ongoing_trips = new_trips(updated, ongoing_trips_bike_ids, free_bikes, {})
+    
+    for next_free_bikes, updated in free_bikes_iterator:
+        next_free_bikes_ids = bike_ids(next_free_bikes)
+        
         end_trip_bikes_ids = free_bikes_ids - next_free_bikes_ids
-        new_trips = find_start(start_trip_bikes_ids, free_bikes, stations)
+        for trip in complete_trips(updated, end_trip_bikes_ids, ongoing_trips, bikes, stations):
+            yield trip
+
+        start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
+        new_trips = new_trips(start_trip_bikes_ids, free_bikes, stations)
+        ongoing_trips.update(new_trips)
         free_bikes_ids = next_free_bikes_ids
 
 
-def main():
-    history_files = get_hist_files()
-    free_bikes = history_files.pop()
-    state = s
-    ongoing_trips = state.ongoing_trips
-    finished_trips = apply_change(ongoing_trips, free_bikes)
+
+def main_loop(stations):
+    free_bikes, updated = get_next_free_bikes()
+    ongoing_trips = new_trips(updated, bike_ids(free_bikes), free_bikes, {})
+    
+    while True:
+        next_free_bikes, updated = get_next_free_bikes()
+        next_free_bikes_ids = bike_ids(next_free_bikes)
+        
+        end_trip_bikes_ids = free_bikes_ids - next_free_bikes_ids
+        completed_trips = complete_trips(updated, end_trip_bikes_ids, ongoing_trips, bikes, stations)
+
+        start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
+        new_trips = new_trips(start_trip_bikes_ids, free_bikes, stations)
+        free_bikes_ids = next_free_bikes_ids
+
+
 
 
 if __name__ == "__main__":
@@ -126,4 +184,3 @@ if __name__ == "__main__":
     pass
     # main()
 
-get_next_free_bikes(Path(conf.HISTORY_PATH))

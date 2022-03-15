@@ -865,12 +865,22 @@ class TestFeed(unittest.TestCase):
     }
 
     def test_read_free_bikes(self):
-        free_bikes = main.read_enabled_free_bikes("tests_data/free_bike_status.json")
+        free_bikes, update = main.read_enabled_free_bikes("tests_data/free_bike_status.json")
         assert free_bikes == self.exemple_free_bikes
 
     def test_next_free_bikes(self):
-        next_bikes = main.get_next_free_bikes(Path("tests_data/history"))
-        assert next_bikes == self.exemple_free_bikes
+        next_bikes, update = main.get_next_free_bikes(Path("tests_data/history"))
+        assert next_bikes == self.exemple_free_bikes, next_bikes
+        
+    def test_iter_free_bikes(self):
+        it = main.iter_free_bikes(Path("tests_data/history"))
+        bikes1, _ = next(it)
+        assert bikes1 == self.exemple_free_bikes, next_bikes
+        bikes2, _ = next(it)
+        assert bikes2 != self.exemple_free_bikes, next_bikes
+        nb_items_left = sum(1 for _ in it)
+        assert(nb_items_left == 2)
+        
 
     def test_read_stations(self):
         p = Path("tests_data/station_information.json")
@@ -882,8 +892,16 @@ class TestFeed(unittest.TestCase):
         p = Path("tests_data/station_information.json")
         with p.open() as f:
             stations = main.read_stations(f.read())
-            nearest = main.find_nearest_station(-83, 40, stations)
+            nearest, dist = main.find_nearest_station(-83, 40, stations)
             assert nearest == {'station_id': 'd63cde22-3168-11ea-a9c2-021785291289', 'lon': -83.0011625, 'lat': 40.001957, 'name': 'Summit St & 17th Ave', 'description': ''}, nearest
+
+    def test_find_nearest_no_stations(self):
+        nearest, dist = main.find_nearest_station(-83, 40, {})
+        assert nearest is None, nearest
+            
+    def test_fmain_loop(self):
+        nearest, dist = main.find_nearest_station(-83, 40, {})
+        assert nearest is None, nearest
 
 
 if __name__ == "__main__":
