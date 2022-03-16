@@ -3,7 +3,11 @@ from glob import glob
 from pathlib import Path
 import json
 import math
+from urllib.request import urlopen
 from time import sleep
+import os
+from outputs import dump_whole_trips
+
 
 
 def read_enabled_free_bikes(filename):
@@ -60,8 +64,8 @@ def read_stations(stations_st):
     result = {}
     for station in stations:
         station_id = station["station_id"]
-        lat = station["lat"]
         lon = station["lon"]
+        lat = station["lat"]
         name = optional_field(station, "name")
         description = optional_field(station, "address")
         result[station_id] = {
@@ -101,42 +105,44 @@ def find_nearest_station(bike_lon, _bike_lat, stations):
                 dist = cur_dist
     return nearest, dist
 
-
-def new_trips(start_time, start_trip_bikes_ids, free_bikes, stations):
+    
+def create_trips(start_time, bikes, all_stations):
     result = {}
-    for bike_id in start_trip_bikes_ids:
-        nearest, dist = find_nearest_station_id(
-            free_bikes[bike_id].lat, free_bikes[bike_id].lon, stations
+    for bike in bikes.values():
+        nearest, dist = find_nearest_station(
+            bike['lon'], bike['lat'], all_stations
         )
-        if dist > 200:
-            nearest = None
-        result[bike_id] = {
-            'bike_id' : bike_id,
+        result[bike['bike_id']] = {
+            'bike_id' : bike['bike_id'],
+            'start_lon' : bike['lon'],
+            'start_lat' : bike['lat'],
             'start_station' : nearest,
             'start_time' : start_time,
         }
     return result
     
-
+    
 def bike_ids(bikes):
-    return {bike["bike_id"] for bike in bikes}
+    return {bike_id for bike_id in bikes}
 
 
-def bikes_from_ids(bike_ids, bikes):
-    return {bike_id : bikes["bike_id"] for bike_id in bike_ids}
+def bikes_from_ids(bikes, bike_ids):
+    return {bike_id : bikes[bike_id] for bike_id in bike_ids}
     
 
-def complete_trips(updated, bike_ids, trips, bikes, stations):
+def complete_trips(trips, end_time, end_bikes, stations):
     """ BEWARE : trips are mutated
     Remove the trips according to the bike_ids from the trips
     Returns the removed trips with an end_time and end_station
     """
     result = []
-    for bike_id in bike_ids:
-        trip = trips.pop(bike_id)
-        trip['end_time'] = updated
-        bike = bikes[bike_id]
-        trip['end_station'] = find_nearest_station(bike['lon'], bike['lat'], stations)
+    for bike in end_bikes.values():
+        trip = trips.pop(bike['bike_id'])
+        trip['end_time'] = end_time
+        trip['end_lon'] = bike['lon']
+        trip['end_lat'] = bike['lat']
+        nearest, dist = find_nearest_station(bike['lon'], bike['lat'], stations)
+        trip['end_station'] = nearest
         result.append(trip)
     return result
 
@@ -144,43 +150,61 @@ def complete_trips(updated, bike_ids, trips, bikes, stations):
 def trips_iterator(free_bikes_iterator, stations):
     free_bikes, updated = next(free_bikes_iterator)
     ongoing_trips_bike_ids = bike_ids(free_bikes)
-    ongoing_trips = new_trips(updated, ongoing_trips_bike_ids, free_bikes, {})
+    ongoing_trips = create_trips(updated, free_bikes, {})
     
     for next_free_bikes, updated in free_bikes_iterator:
         next_free_bikes_ids = bike_ids(next_free_bikes)
         
-        end_trip_bikes_ids = free_bikes_ids - next_free_bikes_ids
-        for trip in complete_trips(updated, end_trip_bikes_ids, ongoing_trips, bikes, stations):
+        end_trip_bikes_ids = ongoing_trips_bike_ids - next_free_bikes_ids
+        end_trip_bikes = bikes_from_ids(free_bikes, end_trip_bikes_ids)
+        for trip in complete_trips(ongoing_trips, updated, end_trip_bikes, stations):
             yield trip
 
-        start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
-        new_trips = new_trips(start_trip_bikes_ids, free_bikes, stations)
+        start_trip_bikes_ids = next_free_bikes_ids - ongoing_trips_bike_ids
+        start_trip_bikes = bikes_from_ids(next_free_bikes, start_trip_bikes_ids)
+        new_trips = create_trips(updated, start_trip_bikes, stations)
         ongoing_trips.update(new_trips)
-        free_bikes_ids = next_free_bikes_ids
+        ongoing_trips_bike_ids = next_free_bikes_ids
+        free_bikes = next_free_bikes
 
 
-
-def main_loop(stations):
-    free_bikes, updated = get_next_free_bikes()
-    ongoing_trips = new_trips(updated, bike_ids(free_bikes), free_bikes, {})
-    
-    while True:
-        next_free_bikes, updated = get_next_free_bikes()
-        next_free_bikes_ids = bike_ids(next_free_bikes)
+def debug_trip(trip):
+    dist = haversine(trip['start_lon'], trip['start_lat'], trip['end_lon'], trip['end_lat'])
+    duration = math.floor((trip['end_time']- trip['start_time']) / 60)
+    delta_start = None
+    if trip['start_station']:
+        delta_start = haversine(trip['start_lon'], trip['start_lat'], trip['start_station']['lon'], trip['start_station']['lat'])
+    delta_end = None
+    if trip['end_station']:
+        delta_end = haversine(trip['end_lon'], trip['end_lat'], trip['end_station']['lon'], trip['end_station']['lat'])   
+    if delta_start and delta_start > 450:
+        print(trip)
+        print("Dist : {} - Duration : {} - delta_start : {} - delta_end : {}".format(dist, duration, delta_start, delta_end))
         
-        end_trip_bikes_ids = free_bikes_ids - next_free_bikes_ids
-        completed_trips = complete_trips(updated, end_trip_bikes_ids, ongoing_trips, bikes, stations)
 
-        start_trip_bikes_ids = next_free_bikes_ids - free_bikes_ids
-        new_trips = new_trips(start_trip_bikes_ids, free_bikes, stations)
-        free_bikes_ids = next_free_bikes_ids
+def next_hour(timestamp):
+    return math.ceil(timestamp / 3600) * 3600
 
-
+    
+def main():
+    free_bikes_iterator = iter_free_bikes(conf.HISTORY_PATH)
+    response = urlopen(conf.STATION_INFROMATION_URL)
+    stations = read_stations(response.read())
+    complete_trips = []
+    next_dump_time = None
+    for trip in trips_iterator(free_bikes_iterator, stations):
+        if next_dump_time is None:
+            next_dump_time = next_hour(trip['end_time'])
+        if trip['end_time'] > next_dump_time:
+            dump_whole_trips(next_dump_time, complete_trips)
+            print( "{} - {}".format(trip['end_time'], next_dump_time))
+            complete_trips = []
+            next_dump_time += 3600
+        complete_trips.append(trip)
+        debug_trip(trip)
 
 
 if __name__ == "__main__":
-    stations_st = urlopen(conf.STATION_INFROMATION_URL).read()
-    stations = list(iter_stations(stations_st))
-    pass
-    # main()
+    main()
+
 

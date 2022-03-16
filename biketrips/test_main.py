@@ -900,8 +900,19 @@ class TestFeed(unittest.TestCase):
         assert nearest is None, nearest
             
     def test_fmain_loop(self):
-        nearest, dist = main.find_nearest_station(-83, 40, {})
-        assert nearest is None, nearest
+        free_bikes_iterator = main.iter_free_bikes(Path("tests_data/history"))
+        p = Path("tests_data/station_information.json")
+        with p.open() as f:
+            stations = main.read_stations(f.read())
+        for trip in main.trips_iterator(free_bikes_iterator, stations):
+            print(trip)
+            
+    def test_dt(self):
+        year,month,day,hour = main.date_time_parts(1647361820)
+        assert year == 2022, year
+        assert month == 3, month
+        assert day == 15, day
+        assert hour == 17, hour
 
 
 if __name__ == "__main__":
