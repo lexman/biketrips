@@ -43,15 +43,15 @@ def trip_1h_batches(it_trips):
         debug_trip(trip)
         if next_dump_time is None:
             next_dump_time = next_hour(trip['end_time'])
-        if trip['end_time'] > next_dump_time:
+        while trip['end_time'] > next_dump_time:
             yield next_dump_time, complete_trips
             complete_trips = []
             next_dump_time += 3600
-        if trip['end_time'] <= next_dump_time:
-            complete_trips.append(trip)
-    
+        complete_trips.append(trip)
+
+
 def main():
-    free_bikes_iterator = iter_free_bikes(conf.HISTORY_PATH)
+    free_bikes_iterator = iter_free_bikes_forever(conf.HISTORY_PATH)
     response = urlopen(conf.STATION_INFROMATION_URL)
     stations = read_stations(response.read())
     
