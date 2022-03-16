@@ -1,6 +1,7 @@
 import unittest
 import main
 from pathlib import Path
+import outputs
 
 
 class TestFeed(unittest.TestCase):
@@ -908,11 +909,17 @@ class TestFeed(unittest.TestCase):
             print(trip)
             
     def test_dt(self):
-        year,month,day,hour = main.date_time_parts(1647361820)
-        assert year == 2022, year
-        assert month == 3, month
-        assert day == 15, day
-        assert hour == 17, hour
+        year,month,day,hour = outputs.date_time_parts(1647361820)
+        assert year == "2022", year
+        assert month == "3", month
+        assert day == "15", day
+        assert hour == "17", hour
+        
+    def test_format_timestamp(self):
+        ts = 1588306501
+        f = outputs.format_ts(ts)
+        assert f == "2020-05-01 06:15:01.000000+00:00", f
+
 
 
 if __name__ == "__main__":

@@ -54,6 +54,14 @@ def dump_json(json_file, trips_outputables):
         f_json.write(json.dumps(trips_outputables))
             
 
+def dump_wkt(wkt_file, trips_outputables):
+    with open(wkt_file, "w") as f_wkt:
+        for fields in trips_outputables:
+            #line = f"LINESTRING({fields['start_station_latitude']} {fields['start_station_longitude']}, {fields['end_station_latitude']},{fields['end_station_longitude']})\n"
+            line = f"POINT({fields['start_station_longitude']} {fields['end_station_latitude']})\n"
+            f_wkt.write(line)
+            
+
 def is_trip_whole(trip):
     return 'start_station' in trip and trip['start_station']
 
@@ -64,9 +72,8 @@ def dump_whole_trips(next_dump_time, trips):
     year, month, day, hour = date_time_parts(next_dump_time - 1)
     dest = conf.DEST_PATH / "trips" / year / month / day
     dest.mkdir(parents=True, exist_ok=True)
-    csv_file = dest / f"{hour}.csv"
-    dump_csv(csv_file, trips_outputables)
-    json_file = dest / f"{hour}.json"
-    dump_json(json_file, trips_outputables)
+    dump_csv(dest / f"{hour}.csv", trips_outputables)
+    dump_json(dest / f"{hour}.json", trips_outputables)
+    dump_wkt(dest / f"{hour}.wkt", trips_outputables)
     
 

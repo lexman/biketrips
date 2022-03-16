@@ -91,19 +91,19 @@ def haversine(lat1, lon1, lat2, lon2):
     return d
 
 
-def find_nearest_station(bike_lon, _bike_lat, stations):
+def find_nearest_station(bike_lon,_bike_lat, stations):
     nearest = None
-    dist = None
+    min_dist = None
     for st in stations.values():
         if nearest is None:
             nearest = st
-            dist = haversine(bike_lon, _bike_lat, st['lon'], st['lat'])
+            min_dist = haversine(bike_lon, _bike_lat, st['lon'], st['lat'])
         else:
             cur_dist = haversine(bike_lon, _bike_lat, st['lon'], st['lat'])
-            if cur_dist <= dist:
+            if cur_dist <= min_dist:
                 nearest = st
-                dist = cur_dist
-    return nearest, dist
+                min_dist = cur_dist
+    return nearest, min_dist
 
     
 def create_trips(start_time, bikes, all_stations):
@@ -138,6 +138,7 @@ def complete_trips(trips, end_time, end_bikes, stations):
     result = []
     for bike in end_bikes.values():
         trip = trips.pop(bike['bike_id'])
+        assert(trip['bike_id'] == bike['bike_id'])
         trip['end_time'] = end_time
         trip['end_lon'] = bike['lon']
         trip['end_lat'] = bike['lat']
@@ -169,6 +170,7 @@ def trips_iterator(free_bikes_iterator, stations):
 
 
 def debug_trip(trip):
+
     dist = haversine(trip['start_lon'], trip['start_lat'], trip['end_lon'], trip['end_lat'])
     duration = math.floor((trip['end_time']- trip['start_time']) / 60)
     delta_start = None
@@ -177,7 +179,8 @@ def debug_trip(trip):
     delta_end = None
     if trip['end_station']:
         delta_end = haversine(trip['end_lon'], trip['end_lat'], trip['end_station']['lon'], trip['end_station']['lat'])   
-    if delta_start and delta_start > 450:
+    #if delta_start and delta_start > 0:
+    if dist > 30:
         print(trip)
         print("Dist : {} - Duration : {} - delta_start : {} - delta_end : {}".format(dist, duration, delta_start, delta_end))
         
@@ -185,14 +188,24 @@ def debug_trip(trip):
 def next_hour(timestamp):
     return math.ceil(timestamp / 3600) * 3600
 
+
+def debug_bike(free_bikes_iterator, bike_id):
+    for next_free_bikes, updated in free_bikes_iterator:
+        if bike_id in next_free_bikes:
+            print(next_free_bikes[bike_id])
+    
+    
     
 def main():
     free_bikes_iterator = iter_free_bikes(conf.HISTORY_PATH)
+    debug_bike(free_bikes_iterator, "f1415ecccec5fe01d0cb840eeb771f22")
+    end
     response = urlopen(conf.STATION_INFROMATION_URL)
     stations = read_stations(response.read())
     complete_trips = []
     next_dump_time = None
     for trip in trips_iterator(free_bikes_iterator, stations):
+        debug_trip(trip)
         if next_dump_time is None:
             next_dump_time = next_hour(trip['end_time'])
         if trip['end_time'] > next_dump_time:
