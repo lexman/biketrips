@@ -72,6 +72,7 @@ def dump_whole_trips(next_dump_time, trips):
     year, month, day, hour = date_time_parts(next_dump_time - 1)
     dest = conf.DEST_PATH / "trips" / year / month / day
     dest.mkdir(parents=True, exist_ok=True)
+    
     dump_csv(dest / f"{hour}.csv", trips_outputables)
     dump_json(dest / f"{hour}.json", trips_outputables)
     dump_wkt(dest / f"{hour}.wkt", trips_outputables)
