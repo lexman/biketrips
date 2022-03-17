@@ -6,8 +6,8 @@ from trips import trips_iterator, haversine
 import math
 
 
-def dump_time(timestamp):
-    return math.ceil(timestamp / conf.BATCH_COLLECT_DURATION ) * conf.BATCH_COLLECT_DURATION
+def next_hour(timestamp):
+    return math.ceil(timestamp / 3600 ) * 3600
 
 
 def trip_batches(trips):
@@ -15,11 +15,11 @@ def trip_batches(trips):
     next_dump_time = None
     for trip in trips:
         if next_dump_time is None:
-            next_dump_time = dump_time(trip['end_time'])
+            next_dump_time = next_hour(trip['end_time'])
         while trip['end_time'] > next_dump_time:
             yield next_dump_time, complete_trips
             complete_trips = []
-            next_dump_time += conf.BATCH_COLLECT_DURATION
+            next_dump_time += 3600
         complete_trips.append(trip)
         
         
@@ -35,7 +35,7 @@ def main():
     it_trips = trips_iterator(free_bikes_iterator, stations)
     for ts, batch in trip_batches(it_trips):
         year, month, day, hour = date_time_parts(ts - 1)
-        dest = conf.DEST_PATH / "trips" / year / month / day / str(ts)
+        dest = conf.DEST_PATH / "trips" / year / month / day
         dest.mkdir(parents=True, exist_ok=True)
         
         trips_outputables = [trip_output_fields(trip) for trip in batch if is_trip_whole(trip)]
