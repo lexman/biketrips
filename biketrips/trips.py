@@ -81,7 +81,9 @@ def trips_iterator(free_bikes_iterator, stations):
 
         end_trip_bikes_ids = ongoing_trips_bike_ids - next_free_bikes_ids
         end_trip_bikes = bikes_from_ids(free_bikes, end_trip_bikes_ids)
-        for trip in complete_trips(ongoing_trips, updated, end_trip_bikes, stations):
+        removed_trips = complete_trips(ongoing_trips, updated, end_trip_bikes, stations)
+        assert len(removed_trips) == len(end_trip_bikes)
+        for trip in removed_trips:
             yield trip
 
         start_trip_bikes_ids = next_free_bikes_ids - ongoing_trips_bike_ids
